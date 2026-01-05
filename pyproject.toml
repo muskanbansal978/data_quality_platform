@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "data-quality-platform"
+version = "0.1.0"
+description = "AI-powered data quality and anomaly detection"
+requires-python = ">=3.10"
+
+dependencies = [
+    # Phase 1: Foundation
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "sqlalchemy>=2.0.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",           # Pretty console output
+    "faker>=22.0.0",          # Sample data generation
+]
+
+[project.optional-dependencies]
+# Add these as you progress through phases
+phase2 = [
+    "great-expectations>=0.18.0",
+    "scipy>=1.11.0",
+]
+phase3 = [
+    "scikit-learn>=1.4.0",
+    "prophet>=1.1.5",
+    "mlflow>=2.10.0",
+]
+phase4 = [
+    "chromadb>=0.4.0",
+    "anthropic>=0.18.0",
+    "langchain>=0.1.0",
+]
+phase5 = [
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "streamlit>=1.30.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.2.0",
+    "ipykernel>=6.29.0",
+]
+all = [
+    "data-quality-platform[phase2,phase3,phase4,phase5,dev]",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.ruff]
+line-length = 100
+select = ["E", "F", "I", "W"]
