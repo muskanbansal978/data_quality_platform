@@ -13,11 +13,6 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-
-console = Console()
 
 # Default thresholds
 DEFAULT_NULL_THRESHOLD = 0.05  # Alert if null% changes by more than 5%
@@ -381,27 +376,24 @@ def compare_profiles(
 
 
 def print_profile(profile: dict[str, Any]) -> None:
-    """Pretty print a profile to console using rich."""
-    # Header panel
-    header = Table.grid(padding=1)
-    header.add_column(style="cyan", justify="right")
-    header.add_column(style="green")
-
-    header.add_row("Rows:", f"{profile['row_count']:,}")
-    header.add_row("Columns:", str(profile['column_count']))
-    header.add_row("Memory:", f"{profile['memory_bytes'] / 1024 / 1024:.2f} MB")
-    header.add_row("Null Cells:", f"{profile['total_null_cells']:,} ({profile['null_cell_percent']:.2f}%)")
-    header.add_row("Duplicate Rows:", f"{profile['duplicate_rows']:,}")
-    header.add_row("Profiled At:", profile['profiled_at'].strftime("%Y-%m-%d %H:%M:%S"))
-
-    console.print(Panel(header, title=f"[bold]Profile: {profile['name']}[/bold]", border_style="blue"))
+    """Pretty print a profile to console."""
+    # Header
+    print(f"\n{'='*70}")
+    print(f"Profile: {profile['name']}")
+    print(f"{'='*70}")
+    print(f"Rows:           {profile['row_count']:,}")
+    print(f"Columns:        {profile['column_count']}")
+    print(f"Memory:         {profile['memory_bytes'] / 1024 / 1024:.2f} MB")
+    print(f"Null Cells:     {profile['total_null_cells']:,} ({profile['null_cell_percent']:.2f}%)")
+    print(f"Duplicate Rows: {profile['duplicate_rows']:,}")
+    print(f"Profiled At:    {profile['profiled_at'].strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"{'='*70}")
 
     # Column details table
-    table = Table(title="Column Statistics", show_header=True, header_style="bold magenta")
-    table.add_column("Column", style="cyan")
-    table.add_column("Type", style="dim")
-    table.add_column("Nulls", justify="right")
-    table.add_column("Stats", style="green")
+    print("\nColumn Statistics")
+    print(f"{'-'*70}")
+    print(f"{'Column':<20} {'Type':<12} {'Nulls':>15} {'Stats':<20}")
+    print(f"{'-'*70}")
 
     for col_name, col in profile['columns'].items():
         null_str = f"{col['null_count']:,} ({col['null_percent']:.1f}%)"
@@ -409,9 +401,9 @@ def print_profile(profile: dict[str, Any]) -> None:
         # Format stats based on column type
         if "mean" in col:
             stats = f"μ={col['mean']:.2f}, σ={col['std']:.2f}, [{col['min_value']:.2f}, {col['max_value']:.2f}]"
-            # Highlight negative min values
+            # Add warning for negative min values
             if col['min_value'] < 0:
-                stats = f"[red]{stats}[/red]"
+                stats = f"{stats} "
         elif "unique_count" in col:
             stats = f"unique={col['unique_count']:,} ({col['unique_percent']:.1f}%)"
         elif "min_date" in col:
@@ -419,100 +411,151 @@ def print_profile(profile: dict[str, Any]) -> None:
         else:
             stats = "-"
 
-        # Highlight high null rates
-        if col['null_percent'] > 5:
-            null_str = f"[yellow]{null_str}[/yellow]"
+        # Add warning markers for high null rates
         if col['null_percent'] > 20:
-            null_str = f"[red]{null_str}[/red]"
+            null_str = f"{null_str} "
+        elif col['null_percent'] > 5:
+            null_str = f"{null_str} "
 
-        table.add_row(col_name, col['dtype'], null_str, stats)
+        print(f"{col_name:<20} {col['dtype']:<12} {null_str:>15} {stats:<20}")
 
-    console.print(table)
+    print(f"{'-'*70}")
 
 
 def print_comparison(comparison: dict[str, Any]) -> None:
-    """Pretty print a profile comparison."""
     if not has_significant_changes(comparison):
-        console.print("[green]✓ No significant changes detected[/green]")
+        print("\n No significant changes detected")
         return
 
-    console.print(f"\n[bold yellow]⚠ {len(comparison['changes'])} changes detected[/bold yellow]\n")
+    print(f"\n {len(comparison['changes'])} changes detected\n")
 
-    table = Table(title="Profile Changes", show_header=True)
-    table.add_column("Type", style="cyan")
-    table.add_column("Column")
-    table.add_column("Baseline", justify="right")
-    table.add_column("Current", justify="right")
-    table.add_column("Change", justify="right")
-    table.add_column("Severity")
+    # Print comparison table
+    print("Profile Changes")
+    print(f"{'-'*90}")
+    print(f"{'Type':<25} {'Column':<15} {'Baseline':>12} {'Current':>12} {'Change':>10} {'Severity':<10}")
+    print(f"{'-'*90}")
 
     for change in comparison['changes']:
-        severity_style = {
-            "high": "[red]HIGH[/red]",
-            "medium": "[yellow]MEDIUM[/yellow]",
-            "low": "[green]LOW[/green]",
-        }.get(change.get("severity", "low"), change.get("severity", ""))
+        severity = change.get("severity", "low").upper()
 
-        table.add_row(
-            change["type"],
-            change.get("column", "-"),
-            str(change.get("baseline", "-")),
-            str(change.get("current", "-")),
-            str(change.get("change_percent", change.get("change", "-"))) + "%"
-                if "change" in change or "change_percent" in change else "-",
-            severity_style,
+        change_val = ""
+        if "change" in change or "change_percent" in change:
+            change_val = str(change.get("change_percent", change.get("change", "-"))) + "%"
+        else:
+            change_val = "-"
+
+        print(
+            f"{change['type']:<25} "
+            f"{change.get('column', '-'):<15} "
+            f"{str(change.get('baseline', '-')):>12} "
+            f"{str(change.get('current', '-')):>12} "
+            f"{change_val:>10} "
+            f"{severity:<10}"
         )
 
-    console.print(table)
+    print(f"{'-'*90}")
+
+
+def detect_and_parse_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """Automatically detect and parse date columns."""
+    for col in df.columns:
+        # Check if column name suggests it's a date
+        if any(date_keyword in col.lower() for date_keyword in ['date', 'time', 'timestamp', 'created', 'updated']):
+            try:
+                df[col] = pd.to_datetime(df[col])
+            except:
+                pass  # If conversion fails, leave as is
+    return df
+
+
+def find_csv_files(data_dir: Path) -> list[Path]:
+    """Find all CSV files in the data directory."""
+    csv_files = list(data_dir.glob("*.csv"))
+    return sorted(csv_files)
 
 
 def main():
-    """Profile the generated sample data."""
+    """Profile all CSV files in the data directory."""
     data_dir = Path("data")
 
-    console.print("\n[bold blue]╔══════════════════════════════════════╗[/bold blue]")
-    console.print("[bold blue]║        Data Profiler                 ║[/bold blue]")
-    console.print("[bold blue]╚══════════════════════════════════════╝[/bold blue]\n")
+    print("\n" + "=" * 50)
+    print("        Data Profiler")
+    print("=" * 50)
 
-    if not (data_dir / "orders.csv").exists():
-        console.print("[red]Error: No data found. Run data_generator first:[/red]")
-        console.print("  python -m src.data_generator")
+    if not data_dir.exists():
+        print(f"\nError: Directory '{data_dir}' does not exist")
         return
 
+    # Find all CSV files
+    csv_files = find_csv_files(data_dir)
+
+    if not csv_files:
+        print(f"\nNo CSV files found in '{data_dir}'")
+        print("Please add CSV files to profile or run data generator first:")
+        print("  python -m src.data_generator")
+        return
+
+    print(f"\nFound {len(csv_files)} CSV file(s) to profile:")
+    for csv_file in csv_files:
+        print(f"  - {csv_file.name}")
+
     # Profile each dataset
-    datasets = ["orders.csv", "order_items.csv", "products.csv"]
+    all_profiles = []
 
-    for filename in datasets:
-        filepath = data_dir / filename
-        console.print(f"\n[dim]Loading {filename}...[/dim]")
+    for filepath in csv_files:
+        print(f"\nLoading {filepath.name}...")
 
-        df = pd.read_csv(filepath)
+        try:
+            df = pd.read_csv(filepath)
 
-        # Parse dates if present
-        if "order_date" in df.columns:
-            df["order_date"] = pd.to_datetime(df["order_date"])
+            # Automatically detect and parse date columns
+            df = detect_and_parse_dates(df)
 
-        profile = profile_dataframe(df, filename.replace(".csv", ""))
-        print_profile(profile)
-        console.print()
+            profile = profile_dataframe(df, filepath.stem)
+            print_profile(profile)
+            print()
 
-    # Highlight detected issues
-    console.print("[bold]═══ Data Quality Summary ═══[/bold]\n")
+            all_profiles.append((filepath.stem, profile))
 
-    # Check orders
-    orders = pd.read_csv(data_dir / "orders.csv")
-    null_customers = orders["customer_id"].isna().sum()
-    if null_customers > 0:
-        console.print(f"[yellow]⚠ Found {null_customers} orders with null customer_id[/yellow]")
+        except Exception as e:
+            print(f"Error processing {filepath.name}: {e}")
+            continue
 
-    # Check order_items
-    items = pd.read_csv(data_dir / "order_items.csv")
-    negative_prices = (items["unit_price"] < 0).sum()
-    if negative_prices > 0:
-        console.print(f"[red]✗ Found {negative_prices} items with negative prices[/red]")
+    # Data Quality Summary
+    if all_profiles:
+        print("\n" + "=" * 50)
+        print("Data Quality Summary")
+        print("=" * 50)
 
-    console.print("\n[dim]Next step: Store profiles in database with 'python -m src.profile_store'[/dim]")
+        has_issues = False
 
+        for dataset_name, profile in all_profiles:
+            issues = []
+
+            # Check for high null percentages
+            if profile['null_cell_percent'] > 5:
+                issues.append(f"High null rate: {profile['null_cell_percent']:.1f}%")
+
+            # Check for duplicates
+            if profile['duplicate_rows'] > 0:
+                issues.append(f"{profile['duplicate_rows']:,} duplicate rows")
+
+            # Check columns for issues
+            for col_name, col in profile['columns'].items():
+                if col['null_percent'] > 20:
+                    issues.append(f"{col_name}: {col['null_percent']:.1f}% nulls")
+
+                if 'min_value' in col and col['min_value'] < 0:
+                    issues.append(f"{col_name}: has negative values")
+
+            if issues:
+                has_issues = True
+                print(f"\n{dataset_name}:")
+                for issue in issues:
+                    print(f"  - {issue}")
+
+        if not has_issues:
+            print("\nNo significant data quality issues detected!")
 
 if __name__ == "__main__":
     main()
