@@ -4,7 +4,7 @@ Data profiler for computing statistical profiles of datasets.
 This module provides tools to analyze datasets and compute comprehensive
 statistical profiles that serve as baselines for anomaly detection.
 
-Run with: python -m src.profiler
+Run with: python -m src.data_profiler
 """
 
 from datetime import datetime
