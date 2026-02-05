@@ -230,7 +230,7 @@ def print_summary(
     start_date: datetime,
 ) -> None:
     """Print a summary of generated data."""
-    print("\n✓ Data generated successfully!\n")
+    print("\n Data generated successfully!\n")
 
     # Summary table
     print("Generated Data Summary")

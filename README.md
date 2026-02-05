@@ -8,6 +8,8 @@ pip install -e .
 ## Implementation ##
 data_generator.py is used to create sample data
 data_profile.py is used for computing statistical profiles of datasets
+anomaly_detector.py is used for data quality monitoring
 
 If you want a different data to be profiled add in .csv format in data dir in root directory
+
 
