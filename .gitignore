@@ -53,6 +53,7 @@ dmypy.json
 
 # Data files (uncomment if you don't want to track data)
 data/
+profiles/
 *.csv
 *.parquet
 *.json

@@ -9,7 +9,7 @@ Run with: python -m src.anomaly_detector
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -1421,20 +1421,32 @@ def print_anomalies(anomalies: list[dict[str, Any]]) -> None:
         print()
 
 
-def detect_date_column(df: pd.DataFrame) -> str | None:
-    """Auto-detect a date column by checking datetime types or parsing object columns."""
+def detect_date_column(df: pd.DataFrame) -> Optional[str]:
+    """Auto-detect a date column by checking datetime types, column names, or parsing object columns."""
     # First check for columns already parsed as datetime
     datetime_cols = df.select_dtypes(include=["datetime64"]).columns
     if len(datetime_cols) > 0:
         return datetime_cols[0]
 
-    # Then try parsing object columns
+    # Check for columns with date-related names
+    date_keywords = ['date', 'time', 'timestamp', 'dt', 'day', 'created', 'updated', 'modified']
+    for col in df.columns:
+        if any(keyword in col.lower() for keyword in date_keywords):
+            # Verify it can be parsed as datetime
+            try:
+                pd.to_datetime(df[col])
+                return col
+            except (ValueError, TypeError):
+                continue
+
+    # Finally, try parsing any object columns that might be dates
     for col in df.select_dtypes(include=["object"]).columns:
         try:
             pd.to_datetime(df[col])
             return col
         except (ValueError, TypeError):
             continue
+
     return None
 
 

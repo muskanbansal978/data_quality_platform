@@ -11,7 +11,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -568,7 +568,7 @@ class ProfileEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def save_profile(profile: dict[str, Any], filepath: Path | str) -> None:
+def save_profile(profile: dict[str, Any], filepath: Union[Path, str]) -> None:
     """
     Save a profile to a JSON file.
 
@@ -583,7 +583,7 @@ def save_profile(profile: dict[str, Any], filepath: Path | str) -> None:
         json.dump(profile, f, indent=2, cls=ProfileEncoder)
 
 
-def load_profile(filepath: Path | str) -> dict[str, Any]:
+def load_profile(filepath: Union[Path, str]) -> dict[str, Any]:
     """
     Load a profile from a JSON file.
 
@@ -605,7 +605,7 @@ def load_profile(filepath: Path | str) -> dict[str, Any]:
     return profile
 
 
-def list_saved_profiles(profile_dir: Path | str = "profiles") -> list[dict[str, Any]]:
+def list_saved_profiles(profile_dir: Union[Path, str] = "profiles") -> list[dict[str, Any]]:
     """
     List all saved profiles in a directory.
 

@@ -1,13 +1,20 @@
 """
-LLM-powered anomaly explainer.
+LLM-powered anomaly explainer with universal provider support.
 
-Uses Claude or GPT-4 to generate natural language explanations,
-root cause hypotheses, and remediation suggestions for detected anomalies.
+Uses any LLM provider (Anthropic, OpenAI, Azure, Cohere, Gemini, Bedrock, etc.)
+to generate natural language explanations, root cause hypotheses, and remediation
+suggestions for detected anomalies.
+
+Leverages LiteLLM for unified access to 100+ LLM providers.
 
 Run with: python -m src.llm_explainer
 
-Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+Configuration: Requires llm_config.json in config folder with provider, model, and API key
 """
+ 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import json
 import os
@@ -15,9 +22,55 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-# LLM providers
-PROVIDER_ANTHROPIC = "anthropic"
-PROVIDER_OPENAI = "openai"
+# Default config file path
+CONFIG_FILE = Path(__file__).resolve().parents[1] / "config" / "llm_config.json"
+
+
+def load_llm_config() -> dict[str, Any]:
+    """Load LLM configuration from config file."""
+    if not CONFIG_FILE.exists():
+        raise FileNotFoundError(f"Config file not found: {CONFIG_FILE}")
+    
+    with open(CONFIG_FILE, 'r') as f:
+        config = json.load(f)
+    
+    return config
+
+
+def get_provider_and_model() -> tuple[str, str, bool, Optional[str], Optional[dict]]:
+    """Get provider, model, use_mock flag, API key, and additional config from config.
+
+    Returns:
+        Tuple of (provider, model, use_mock, api_key, custom_llm_provider_config)
+    """
+    config = load_llm_config()
+
+    provider = config.get("provider")
+    if not provider:
+        raise ValueError("'provider' must be specified in llm_config.json")
+    provider = provider.lower()
+
+    use_mock = config.get("use_mock", False)
+
+    # Get model from config, with fallback to provider-specific config
+    if config.get("model"):
+        model = config["model"]
+    else:
+        model = config.get(provider, {}).get("model")
+
+    if not model:
+        raise ValueError(f"'model' must be specified in llm_config.json for provider '{provider}'")
+
+    # Get API key from provider-specific config or top-level
+    api_key = config.get(provider, {}).get("api_key") or config.get("api_key") or None
+
+    # Get additional provider-specific configuration (e.g., base_url, api_version)
+    custom_llm_provider_config = config.get(provider, {}).copy()
+    custom_llm_provider_config.pop("api_key", None)  # Remove API key from custom config
+    custom_llm_provider_config.pop("model", None)  # Remove model from custom config
+
+    return provider, model, use_mock, api_key, custom_llm_provider_config
+
 
 # System prompt for LLM
 SYSTEM_PROMPT = """You are a data quality expert analyzing anomalies in data pipelines.
@@ -394,28 +447,115 @@ def create_explanation(
     }
 
 
-def init_anthropic_client():
-    """Initialize Anthropic client."""
-    try:
-        from anthropic import Anthropic
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-        return Anthropic(api_key=api_key)
-    except ImportError:
-        raise ImportError("anthropic package not installed. Run: pip install anthropic")
+class UniversalLLMProvider:
+    """Universal LLM provider using LiteLLM to support all providers dynamically."""
+
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        api_key: Optional[str] = None,
+        custom_config: Optional[dict] = None
+    ):
+        """
+        Initialize universal LLM provider.
+
+        Args:
+            provider: Provider name (e.g., 'anthropic', 'openai', 'azure', 'cohere', etc.)
+            model: Model name for the provider
+            api_key: API key for authentication
+            custom_config: Additional provider-specific configuration (e.g., base_url, api_version)
+        """
+        self.provider = provider
+        self.model = model
+        self.api_key = api_key
+        self.custom_config = custom_config or {}
+        self._initialized = False
+
+    def initialize_client(self):
+        """Initialize and verify LiteLLM can be imported."""
+        if self._initialized:
+            return
+
+        try:
+            import litellm
+            self._initialized = True
+        except ImportError:
+            raise ImportError(
+                "litellm package not installed. "
+                "Run: pip install litellm"
+            )
+
+    def call(self, prompt: str, system_prompt: str) -> str:
+        """
+        Call the LLM using LiteLLM's unified interface.
+
+        LiteLLM automatically handles different provider formats and requirements.
+        """
+        self.initialize_client()
+
+        import litellm
+
+        # Build messages in the standard format
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": prompt}
+        ]
+
+        # Prepare kwargs for litellm.completion
+        kwargs = {
+            "model": f"{self.provider}/{self.model}",
+            "messages": messages,
+            "max_tokens": 1024,
+        }
+
+        # Add API key if provided
+        if self.api_key:
+            kwargs["api_key"] = self.api_key
+
+        # Merge any custom configuration (e.g., base_url, api_version, temperature)
+        kwargs.update(self.custom_config)
+
+        try:
+            response = litellm.completion(**kwargs)
+            return response.choices[0].message.content
+        except Exception as e:
+            # Provide helpful error message
+            raise RuntimeError(
+                f"LLM call failed for provider '{self.provider}' with model '{self.model}': {str(e)}"
+            )
 
 
-def init_openai_client():
-    """Initialize OpenAI client."""
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set")
-        return OpenAI(api_key=api_key)
-    except ImportError:
-        raise ImportError("openai package not installed. Run: pip install openai")
+def get_llm_provider(
+    provider_name: str,
+    model: str,
+    api_key: Optional[str] = None,
+    custom_config: Optional[dict] = None
+) -> UniversalLLMProvider:
+    """
+    Factory function to get a universal LLM provider.
+
+    Supports all providers through LiteLLM including:
+    - anthropic (Claude)
+    - openai (GPT)
+    - azure (Azure OpenAI)
+    - cohere (Command models)
+    - gemini (Google Gemini)
+    - bedrock (AWS Bedrock)
+    - replicate
+    - huggingface
+    - And 100+ more providers
+
+    Args:
+        provider_name: Name of the LLM provider
+        model: Model identifier
+        api_key: API key for authentication
+        custom_config: Additional provider-specific configuration
+
+    Returns:
+        UniversalLLMProvider instance
+    """
+    return UniversalLLMProvider(provider_name, model, api_key, custom_config)
 
 
 def build_prompt(
@@ -458,30 +598,6 @@ def build_prompt(
     return "\n".join(prompt_parts)
 
 
-def call_anthropic(client, model: str, prompt: str) -> str:
-    """Call Anthropic API."""
-    response = client.messages.create(
-        model=model,
-        max_tokens=1024,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text
-
-
-def call_openai(client, model: str, prompt: str) -> str:
-    """Call OpenAI API."""
-    response = client.chat.completions.create(
-        model=model,
-        max_tokens=1024,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    return response.choices[0].message.content
-
-
 def parse_response(response_text: str) -> dict[str, Any]:
     """Parse LLM response into structured explanation."""
     # Clean up response - handle markdown code blocks
@@ -517,35 +633,33 @@ def parse_response(response_text: str) -> dict[str, Any]:
 def explain_anomaly(
     anomaly: dict[str, Any],
     context: Optional[dict[str, Any]] = None,
-    provider: str = PROVIDER_ANTHROPIC,
+    provider_name: Optional[str] = None,
     model: Optional[str] = None,
-    client=None,
+    api_key: Optional[str] = None,
+    custom_config: Optional[dict] = None,
 ) -> dict[str, Any]:
     """
-    Generate explanation for a single anomaly.
+    Generate explanation for a single anomaly using any LLM provider.
 
     Args:
         anomaly: Anomaly dict with type, severity, date, column, message, etc.
         context: Optional additional context (table name, descriptions, etc.)
-        provider: LLM provider (anthropic or openai)
-        model: Model name (optional, uses defaults)
-        client: Pre-initialized client (optional)
+        provider_name: LLM provider name (e.g., 'anthropic', 'openai', 'azure', 'cohere', 'gemini', etc.)
+        model: Model name for the provider
+        api_key: API key for the provider (optional, uses config or environment)
+        custom_config: Additional provider-specific configuration (e.g., base_url, api_version, temperature)
 
     Returns:
         Explanation dict with root cause, actions, and impact assessment
     """
+    if not provider_name or not model:
+        raise ValueError("Both provider_name and model must be specified")
+
     prompt = build_prompt(anomaly, context)
 
-    if provider == PROVIDER_ANTHROPIC:
-        if client is None:
-            client = init_anthropic_client()
-        model = model or "claude-sonnet-4-20250514"
-        response = call_anthropic(client, model, prompt)
-    else:
-        if client is None:
-            client = init_openai_client()
-        model = model or "gpt-4-turbo-preview"
-        response = call_openai(client, model, prompt)
+    # Get provider and call
+    provider = get_llm_provider(provider_name, model, api_key, custom_config)
+    response = provider.call(prompt, SYSTEM_PROMPT)
 
     return parse_response(response)
 
@@ -575,35 +689,51 @@ def explain_anomaly_mock(anomaly: dict[str, Any]) -> dict[str, Any]:
 def explain_batch(
     anomalies: list[dict[str, Any]],
     context: Optional[dict[str, Any]] = None,
-    provider: str = PROVIDER_ANTHROPIC,
+    provider_name: Optional[str] = None,
     model: Optional[str] = None,
-    use_mock: bool = False,
+    use_mock: Optional[bool] = None,
+    api_key: Optional[str] = None,
+    custom_config: Optional[dict] = None,
 ) -> list[tuple[dict[str, Any], dict[str, Any]]]:
     """
-    Generate explanations for multiple anomalies.
+    Generate explanations for multiple anomalies using any LLM provider.
 
     Args:
         anomalies: List of anomaly dicts
         context: Optional shared context
-        provider: LLM provider
-        model: Model name
-        use_mock: Use mock explanations instead of real API
+        provider_name: LLM provider name (optional, uses config if not specified)
+        model: Model name (optional, uses config if not specified)
+        use_mock: Use mock explanations (optional, uses config if not specified)
+        api_key: API key for the provider (optional, uses config if not specified)
+        custom_config: Additional provider-specific configuration (optional, uses config if not specified)
 
     Returns:
         List of (anomaly, explanation) tuples
     """
     results = []
 
-    # Initialize client once for batch
-    client = None
+    # Load from config if not provided
+    if (provider_name is None or model is None or use_mock is None or
+        api_key is None or custom_config is None):
+        config_provider, config_model, config_use_mock, config_api_key, config_custom = get_provider_and_model()
+        if provider_name is None:
+            provider_name = config_provider
+        if model is None:
+            model = config_model
+        if use_mock is None:
+            use_mock = config_use_mock
+        if api_key is None:
+            api_key = config_api_key
+        if custom_config is None:
+            custom_config = config_custom
+
+    # Verify provider can be initialized if not using mock
     if not use_mock:
         try:
-            if provider == PROVIDER_ANTHROPIC:
-                client = init_anthropic_client()
-            else:
-                client = init_openai_client()
+            provider = get_llm_provider(provider_name, model, api_key, custom_config)
+            provider.initialize_client()
         except (ValueError, ImportError) as e:
-            print(f"Warning: Could not initialize LLM client: {e}")
+            print(f"Warning: Could not initialize LLM provider: {e}")
             print("Falling back to mock explanations.")
             use_mock = True
 
@@ -614,7 +744,7 @@ def explain_batch(
             if use_mock:
                 explanation = explain_anomaly_mock(anomaly)
             else:
-                explanation = explain_anomaly(anomaly, context, provider, model, client)
+                explanation = explain_anomaly(anomaly, context, provider_name, model, api_key, custom_config)
             results.append((anomaly, explanation))
         except Exception as e:
             print(f"Error explaining anomaly: {e}")
@@ -669,6 +799,25 @@ def main():
     print("        LLM Anomaly Explainer")
     print("=" * 50)
 
+    # Load configuration
+    try:
+        provider, model, use_mock, api_key, custom_config = get_provider_and_model()
+        print(f"\nConfiguration loaded from {CONFIG_FILE}")
+        print(f"  Provider: {provider}")
+        print(f"  Model: {model}")
+        print(f"  Use Mock: {use_mock}")
+        if api_key:
+            print(f"  API Key: {'*' * (len(api_key) - 4) + api_key[-4:]}")
+        if custom_config:
+            print(f"  Custom Config: {list(custom_config.keys())}")
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        print("Please create llm_config.json in the project root.")
+        return
+    except ValueError as e:
+        print(f"Error in configuration: {e}")
+        return
+
     # Find CSV files
     csv_files = sorted(data_dir.glob("*.csv"))
 
@@ -706,16 +855,22 @@ def main():
         print("No anomalies to explain.")
         return
 
-    # Check for API keys
-    api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    use_mock = not api_key
-
-    if api_key:
-        provider = PROVIDER_ANTHROPIC if os.environ.get("ANTHROPIC_API_KEY") else PROVIDER_OPENAI
-        print(f"\nUsing {provider} API")
-    else:
-        print("\nNo API key found. Using mock explainer for demo.")
-        print("Set ANTHROPIC_API_KEY or OPENAI_API_KEY for real explanations.")
+    if not use_mock:
+        # Check for API keys
+        api_key = os.environ.get("ANTHROPIC_API_KEY") if provider == "anthropic" else os.environ.get("OPENAI_API_KEY")
+        if not api_key:
+            print(f"\nWarning: {provider.upper()} API key not found in environment.")
+            print(f"Set {provider.upper()}_API_KEY environment variable.")
+            print("Using mock explainer for demo.")
+            use_mock = True
+    
+    if use_mock:
+        print("\nUsing mock explainer for demo.")
+        print("To use real LLM explanations, set API key and update llm_config.json:")
+        if provider == "anthropic":
+            print("  export ANTHROPIC_API_KEY=your-key-here")
+        else:
+            print("  export OPENAI_API_KEY=your-key-here")
 
     # Explain anomalies (limit to first 5 for demo)
     anomalies_to_explain = all_anomalies[:5]
@@ -727,17 +882,18 @@ def main():
         if use_mock:
             explanation = explain_anomaly_mock(anomaly)
         else:
-            explanation = explain_anomaly(anomaly, provider=provider)
+            explanation = explain_anomaly(
+                anomaly,
+                provider_name=provider,
+                model=model,
+                api_key=api_key,
+                custom_config=custom_config
+            )
 
         print_explanation(anomaly, explanation)
 
     print("\n" + "=" * 60)
     print(f"\nExplained {len(anomalies_to_explain)} anomalies")
-
-    if use_mock:
-        print("\nTo use real LLM explanations:")
-        print("  export ANTHROPIC_API_KEY=your-key-here")
-        print("  python -m src.llm_explainer")
 
 
 if __name__ == "__main__":
