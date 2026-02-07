@@ -1,7 +1,17 @@
+## What This Project Does
+
+Data Quality Platform is an end-to-end pipeline that monitors datasets for quality issues. It generates (or ingests) data, builds statistical profiles to establish baselines, detects anomalies like volume drops, null spikes, distribution shifts, and schema drift using z-score analysis, then uses an LLM to explain the root cause of each anomaly in plain language. Results can be explored in an interactive Streamlit dashboard.
+
+**Pipeline flow:**
+
+```
+Data (generate or provide) → Statistical Profiling → Anomaly Detection → LLM Explanation → Dashboard
+```
+
 ## Project Setup
 
 ```bash
-cd data-quality-platform
+cd data-quality-platform 
 python -m venv venv
 source venv/bin/activate
 python setup_environment.py
