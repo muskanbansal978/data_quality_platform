@@ -1544,6 +1544,8 @@ def main():
         for anomaly_type, count in sorted(type_counts.items()):
             print(f"  - {anomaly_type}: {count}")
 
+    return all_anomalies
+
 
 if __name__ == "__main__":
     main()

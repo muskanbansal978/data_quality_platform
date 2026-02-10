@@ -878,6 +878,7 @@ def main():
     print(f"\nGenerating explanations for {len(anomalies_to_explain)} anomalies...")
     print("=" * 60)
 
+    results = []
     for anomaly in anomalies_to_explain:
         if use_mock:
             explanation = explain_anomaly_mock(anomaly)
@@ -891,9 +892,12 @@ def main():
             )
 
         print_explanation(anomaly, explanation)
+        results.append((anomaly, explanation))
 
     print("\n" + "=" * 60)
     print(f"\nExplained {len(anomalies_to_explain)} anomalies")
+
+    return results
 
 
 if __name__ == "__main__":

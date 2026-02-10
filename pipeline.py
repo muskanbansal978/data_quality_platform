@@ -13,26 +13,37 @@ from src.data_generator import main as generate_data
 from src.data_profiler import main as profile_data
 from src.anomaly_detector import main as detect_anomalies
 from src.llm_explainer import main as explain_anomalies
+from src.alerting import send_alerts
 
 
 def run_pipeline(generate: bool):
     """Run the data quality pipeline."""
+    total_steps = 4 if generate else 3
+    step = 1
+
     if generate:
-        print("\n>>> STEP 1/4: Generating sample data...")
+        print(f"\n>>> STEP {step}/{total_steps}: Generating sample data...")
         generate_data()
-        step_offset = 0
+        step += 1
     else:
-        step_offset = -1
         print("\n>>> Skipping data generation, using existing data in data/")
 
-    print(f"\n>>> STEP {2 + step_offset}/{3 + (1 if generate else 0)}: Profiling data...")
+    print(f"\n>>> STEP {step}/{total_steps}: Profiling data...")
     profile_data()
+    step += 1
 
-    print(f"\n>>> STEP {3 + step_offset}/{3 + (1 if generate else 0)}: Detecting anomalies...")
-    detect_anomalies()
+    print(f"\n>>> STEP {step}/{total_steps}: Detecting anomalies...")
+    all_anomalies = detect_anomalies() or {}
+    step += 1
 
-    print(f"\n>>> STEP {4 + step_offset}/{3 + (1 if generate else 0)}: Explaining anomalies...")
-    explain_anomalies()
+    print(f"\n>>> STEP {step}/{total_steps}: Explaining anomalies...")
+    explanations = explain_anomalies() or []
+
+    # Send alerts for detected anomalies
+    flat_anomalies = [a for lst in all_anomalies.values() for a in lst]
+    if flat_anomalies:
+        print("\n>>> Sending alerts...")
+        send_alerts(flat_anomalies, explanations)
 
     print("\n" + "=" * 50)
     print("   Pipeline complete!")
